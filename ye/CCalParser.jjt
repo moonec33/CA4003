@@ -1,0 +1,315 @@
+/****************************
+***** SECTION 1 - OPTIONS *****
+****************************/
+
+options { 
+	JAVA_UNICODE_ESCAPE = true; 
+	DEBUG_PARSER = true;
+  MULTI = true;
+  VISITOR = true;  
+  NODE_DEFAULT_VOID = true;  
+  NODE_PREFIX = "";
+  IGNORE_CASE = true;
+    
+	}
+
+
+/*********************************
+***** SECTION 2 - USER CODE *****
+*********************************/
+PARSER_BEGIN(CCalParser)
+import java.io.*;
+import java.util.*;
+    public class CCalParser {
+        public static SymbolTable symbolTable = new SymbolTable();
+        public static String scope = "program";
+        public static void main(String args[]) {
+            CCalParser parser;
+            if (args.length == 0) {
+        
+           System.out.println("Ccal Parser: Reading from standard input . . .");
+            parser = new CCalParser(System.in);
+            } else if (args.length == 1) {
+                System.out.println("Ccal Parser: Reading from file " + args[0] + " . . .");
+                try {
+                    parser = new CCalParser(new java.io.FileInputStream(args[0]));
+                } catch (java.io.FileNotFoundException e) {
+                System.out.println("Ccal Parser: File " + args[0] + " not found.");
+                return;
+            }
+            } else {
+                System.out.println("Ccal Parser: Usage is one of:");
+                System.out.println(" java CCalParser < inputfile");
+                System.out.println("OR");
+                System.out.println(" java CCalParser inputfile");
+                return;
+          
+            }
+            try {
+                SimpleNode root = parser.program();
+
+                System.out.println("Abstract Syntax Tree");
+                System.out.println("--------------------------------------");
+                root.dump("");
+                System.out.println();
+                System.out.println("Ccal Parser: Ccal program parsed successfully."); 
+
+                // Print Symbol Table
+
+                System.out.println("SYMBOL TABLE");            
+                symbolTable.printSymbolTable();
+
+
+            } catch (ParseException e) {
+                System.out.println(e.getMessage());
+                System.out.println("Ccal Parser: Encountered errors during parse.");
+            }
+        }
+    }
+PARSER_END(CCalParser)
+
+
+/*****************************************
+***** SECTION 3 - TOKEN DEFINITIONS *****
+*****************************************/
+TOKEN_MGR_DECLS :
+{
+	static int commentNesting = 0;
+}
+
+SKIP : /*** Ignoring spaces/tabs/newlines ***/
+{
+	" "
+	| "\t"
+	| "\n"
+	| "\r"
+
+}
+
+SKIP : /* COMMENTS */
+{
+	< "//" (~["\n"])* "\n" >
+	| "/*" { commentNesting++; } : IN_COMMENT
+
+}
+
+<IN_COMMENT> SKIP :
+{
+	"/*" { commentNesting++; }
+	| "*/" { commentNesting--;
+		if (commentNesting == 0)
+			SwitchTo(DEFAULT);
+		}
+	| <~[]>
+}
+TOKEN : /* Reserved Words */
+{    
+  < VARIABLE : "var">
+  | < CONSTANT : "const">
+  | < RETURN : "return">
+  | < INTEGER : "integer">
+  | < BOOLEAN : "boolean">
+  | < VOID : "void">
+  | < MAIN : "main">
+  | < IF : "if">
+  | < ELSE : "else">
+  | < TRUE : "true">
+  | < FALSE : "false">
+  | < WHILE : "while">
+  | < SKIPP : "skip"> 
+}
+
+TOKEN : /* Keywords and punctuation */
+{    
+  < COMMA : ",">
+  | < SEMIC : ";">
+  | < COLON : ":">
+  | < ASSIGN : "=">
+  | < LBRACE : "{">
+  | < RBRACE : "}">
+  | < LBR : "(">
+  | < RBR : ")">
+  | < PLUS_SIGN : "+">
+  | < MINUS_SIGN : "-">
+  | < NOT : "~">
+  | < OR : "||">
+  | < AND : "&&">
+  | < EQUALS : "==">
+  | < NOT_EQUAL : "!=">
+  | < LESS_THAN : "<">
+  | < LESS_EQUAL : "<=">
+  | < GREATER_THAN : ">">
+  | < GREATER_EQUAL : ">=">
+}
+
+TOKEN : /* Numbers and identifiers */
+{
+	 < NUMBER: (<MINUS_SIGN>)?["1"-"9"](<DIGIT>)* | "0">
+  | < DIGIT: ["0"-"9"] >
+  | < ID : <LETTER>(<LETTER>|<DIGIT>|"_")* >
+	| < #LETTER : ["a" - "z", "A" - "Z"]>
+	
+}
+TOKEN : /* Anything not recognised so far */
+{
+	< OTHER : ~[] >
+}
+
+
+
+/**************************************************************************
+* SECTION 4 - THE GRAMMAR & PRODUCTION RULES - WOULD NORMALLY START HERE *
+**************************************************************************/
+
+SimpleNode program() #program : {}
+{ 
+  decl_list() function_list() main() <EOF> {return jjtThis;}
+} 
+void decl_list() : {}
+{
+  (decl() <SEMIC> decl_list())?
+}
+void decl() : {} 
+{
+  var_decl()
+  | const_decl()
+} 
+void var_decl() #Var : {Token t; String id; String type;}
+{
+   t = <VARIABLE> id = ID() <COLON> type = type() { jjtThis.value = t.image; symbolTable.put(id,type,"var",scope); } 
+
+}
+void const_decl() #Const : {Token t; String id; String type;}
+{
+   t = <CONSTANT> id = ID() <COLON> type = type() <ASSIGN> Expression() {jjtThis.value = t.image;   symbolTable.put(id,type,"const",scope);  } 
+
+}
+void function_list() : {}
+{
+  (function() function_list())?
+}
+void function() #Function : {Token t; String type; String id;}
+{
+  type = type()  id = ID() <LBR> parameter_list() <RBR> {symbolTable.put(id,type,"function",scope); scope=id; }
+  <LBRACE>
+  decl_list()
+  statement_block()
+  <RETURN> <LBR> (Expression() | {}) <RBR> <SEMIC> 
+  <RBRACE>
+
+}
+
+String type() #Type : {Token t; }
+{
+   t = <INTEGER> {jjtThis.value = t.image; return t.image; } 
+
+  |  t = <BOOLEAN> {jjtThis.value = t.image; return t.image; } 
+
+  |  t = <VOID> {jjtThis.value = t.image; return t.image; } 
+
+   
+}
+void parameter_list()  : {}
+{
+  (nemp_parameter_list())?
+}
+void nemp_parameter_list() #NemParL() : {Token t; String type; String id;}
+{ 
+   id = ID() <COLON> type = type() nemp_paramater_list_prime() { symbolTable.put(id,type,"param",scope); } 
+
+}
+void nemp_paramater_list_prime() : {}
+{
+  (<COMMA> nemp_parameter_list())?
+}
+void main() #Main : {}
+{
+  {scope = "main";}
+  <MAIN> 
+  <LBRACE>
+  decl_list()
+  statement_block()
+  <RBRACE>
+}
+
+void statement_block() : {}
+{
+  (statement() statement_block())?
+}
+
+void statement() #Statement : {Token t;}
+{
+  ID() statement_ID()
+  | <LBRACE> statement_block() <RBRACE> 
+  |  t = <IF> condition() <LBRACE> statement_block() <RBRACE> <ELSE> <LBRACE> statement_block() <RBRACE> {jjtThis.value = t.image;}
+  |  t = <WHILE> condition() <LBRACE> statement_block() <RBRACE> {jjtThis.value = t.image;}
+  | <SKIPP> <SEMIC>
+}
+
+void statement_ID() : {Token t;} 
+{
+  t = <ASSIGN> Expression() <SEMIC>  {jjtThis.value = t.image; } #Assign
+  | t =  <LBR> arg_list() <RBR> <SEMIC> #FuncAssign
+  | {}
+}
+
+
+void Expression() : {}
+{
+  fragment() (LOOKAHEAD(2) binary_arith_op() fragment())?
+}
+
+
+void binary_arith_op() : {Token t;}
+{
+   t = <PLUS_SIGN>  {jjtThis.value = t.image; } #Plus_op
+  |  t = <MINUS_SIGN>  {jjtThis.value = t.image; } #Minus_op
+}
+
+void fragment() : {Token t;}
+{
+  (t = <ID>  (<LBR> arg_list() <RBR> | {}) {jjtThis.value = t.image; } )#FuncReturn
+  | t = <MINUS_SIGN> ID() {jjtThis.value = t.image; } #Minus
+  | t = <NUMBER> {jjtThis.value = t.image; } #BoolOp
+  | t = <TRUE>  {jjtThis.value = t.image; } #BoolOp
+  | t = <FALSE>  {jjtThis.value = t.image; } #BoolOp
+  |  <LBR> (Expression() | {}) <RBR> (<LBR> arg_list() <RBR> | {})
+}
+
+
+//Remove Left Recursion  
+void condition() #Condition: {}
+{
+  <NOT> condition() condition_prime()
+  | LOOKAHEAD(2)(<LBR> condition() <RBR> condition_prime())
+  | Expression() comp_op() condition_prime()
+}
+void condition_prime() : {Token t;}
+{
+   t = <AND> condition()  {jjtThis.value = t.image; } #AndOp
+  |  t = <OR> condition()  {jjtThis.value = t.image; }  #OrOp
+  | {}
+}
+
+void comp_op() #Comp : {Token t;}
+{
+  t = <EQUALS> Expression()  {jjtThis.value = t.image;}  #Equals
+  |  t = <NOT_EQUAL> Expression()  {jjtThis.value = t.image;}  #NotEquals
+  |  t = <LESS_THAN> Expression()  {jjtThis.value = t.image;}  #LessThan
+  |  t = <LESS_EQUAL> Expression()  {jjtThis.value = t.image;}  #LessEqual
+  |  t = <GREATER_THAN> Expression()  {jjtThis.value = t.image;}  #GreaterThan
+  |  t = <GREATER_EQUAL> Expression()  {jjtThis.value = t.image;}  #GreaterEqual
+}
+void arg_list() #ArgList : {}
+{
+  (nemp_arg_list() | {})
+}
+void nemp_arg_list() : {}
+{
+  ID() (<COMMA> nemp_arg_list())?
+}
+
+String ID() #ID : {Token t;}
+{
+  t = <ID> {jjtThis.value = t.image; return t.image; }
+}
